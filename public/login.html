@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход в AstroMAP</title>
+    <style>
+        body { 
+            margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center; 
+            background: #020617; font-family: system-ui, sans-serif; overflow: hidden;
+            position: relative;
+        }
+
+        /* Видео фон */
+        #bg-video {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            min-width: 100%;
+            min-height: 100%;
+            width: auto;
+            height: auto;
+            z-index: -1;
+            transform: translate(-50%, -50%);
+            object-fit: cover;
+        }
+
+        .login-card { 
+            background: transparent; padding: 40px; border-radius: 24px; 
+            width: 100%; max-width: 320px; 
+            text-align: center; z-index: 10;
+            border: none;
+        }
+        h1 { color: #fff; margin-bottom: 30px; font-size: 32px; letter-spacing: -1px; text-shadow: 0 0 20px rgba(37, 99, 235, 0.8); }
+        input { 
+            width: 100%; padding: 12px; margin-bottom: 20px; 
+            border: 1px solid rgba(255,255,255,0.2); 
+            border-radius: 12px; box-sizing: border-box; font-size: 16px; text-align: center;
+            background: rgba(255,255,255,0.1); color: white;
+            backdrop-filter: blur(10px);
+        }
+        input::placeholder { color: rgba(255,255,255,0.5); }
+        button { 
+            width: 100%; padding: 12px; background: #2563eb; color: white; 
+            border: none; border-radius: 12px; font-weight: 600; cursor: pointer; font-size: 16px;
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
+        }
+        button:hover { background: #1d4ed8; }
+    </style>
+</head>
+<body>
+    <video autoplay muted loop playsinline id="bg-video">
+        <source src="background.mp4" type="video/mp4">
+    </video>
+
+    <div class="login-card">
+        <h1>AstroMAP</h1>
+        <form action="/login" method="POST">
+            <input type="text" name="login" placeholder="Логин" required autofocus>
+            <input type="password" name="password" placeholder="Пароль" required>
+            <button type="submit">Войти</button>
+        </form>
+    </div>
+</body>
+</html>

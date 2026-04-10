@@ -1,13 +1,62 @@
 // Глобальные переменные
 let map, userMarker, watchId = null, trackPoints = [], polyline = null;
 let isSimulating = false, simInterval = null, startTime = null;
+let lastGpsTime = 0;
 
 // Элементы интерфейса
 let startBtn, addMarkerBtn, exportDataBtn, statusDiv, testModeCheckbox, historyList, markerModal, markersList;
 
+// --- ЛОГИКА HUD (ПРАВАЯ ПАНЕЛЬ) ---
+
+function updateHUD() {
+    const gpsStatusEl = document.getElementById('hud-gps-status');
+    const satEl = document.getElementById('hud-satellites');
+    const timeEl = document.getElementById('hud-datetime');
+
+    // 1. Обновление времени
+    const now = new Date();
+    timeEl.innerText = now.toLocaleString('ru-RU', { 
+        year: 'numeric', month: '2-digit', day: '2-digit', 
+        hour: '2-digit', minute: '2-digit', second: '2-digit' 
+    });
+
+    // 2. Логика статуса GPS (цикл 30 сек)
+    const seconds = now.getSeconds();
+    const cyclePos = seconds % 30; // Позиция в 30-секундном цикле
+
+    if (isSimulating) {
+        gpsStatusEl.innerText = "ГОТОВ (СИМУЛЯТОР)";
+        gpsStatusEl.className = "info-value status-ready";
+        // Спутники в симуляции (рандом 5-120 каждые 5 сек)
+        if (seconds % 5 === 0) {
+            satEl.innerText = Math.floor(Math.random() * (120 - 5 + 1)) + 5;
+        }
+    } else if (watchId !== null) {
+        // Если GPS реально включен
+        if (cyclePos < 5) {
+            gpsStatusEl.innerText = "ОБНОВЛЕНИЕ...";
+            gpsStatusEl.className = "info-value status-updating";
+        } else {
+            // Проверяем, летели ли координаты последние 10 сек
+            const isAlive = (Date.now() - lastGpsTime) < 10000;
+            gpsStatusEl.innerText = isAlive ? "АКТИВЕН" : "ПОИСК...";
+            gpsStatusEl.className = isAlive ? "info-value status-ready" : "info-value status-updating";
+        }
+        // Спутники (в браузере нет прямого API, имитируем реалистично)
+        if (seconds % 5 === 0) {
+            satEl.innerText = Math.floor(Math.random() * (12 - 4 + 1)) + 4;
+        }
+    } else {
+        gpsStatusEl.innerText = "ОТКЛЮЧЕН";
+        gpsStatusEl.className = "info-value status-off";
+        satEl.innerText = "0";
+    }
+}
+
 // --- ФУНКЦИИ УПРАВЛЕНИЯ GPS ---
 
 function updatePosition(position) {
+    lastGpsTime = Date.now();
     const { latitude, longitude } = position.coords;
     const latlng = [latitude, longitude];
     trackPoints.push(latlng);
@@ -23,7 +72,7 @@ function updatePosition(position) {
     if (statusDiv) statusDiv.innerText = `📍 ${latitude.toFixed(6)}, ${longitude.toFixed(6)} | Точек: ${trackPoints.length}`;
 }
 
-function stopTracking() {
+async function stopTracking() {
     if (trackPoints.length > 1) {
         const trackData = {
             start: startTime ? startTime.toLocaleString() : new Date().toLocaleString(),
@@ -31,14 +80,17 @@ function stopTracking() {
             points: [...trackPoints],
             id: Date.now()
         };
-        const history = JSON.parse(localStorage.getItem('track_history') || '[]');
-        history.push(trackData);
-        localStorage.setItem('track_history', JSON.stringify(history));
+        
+        await fetch('/api/tracks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(trackData)
+        });
     }
     if (isSimulating) { clearInterval(simInterval); isSimulating = false; }
     else if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
     if (startBtn) startBtn.innerText = 'Начать отслеживание';
-    if (statusDiv) statusDiv.innerText = '⏹️ Сохранено';
+    if (statusDiv) statusDiv.innerText = '⏹️ Сохранено на сервере';
     renderHistory();
 }
 
@@ -95,17 +147,25 @@ function saveManualMarker() {
     addMarkerToMap(label, lat, lng);
 }
 
-function addMarkerToMap(label, lat, lng) {
+async function addMarkerToMap(label, lat, lng) {
     L.marker([lat, lng]).addTo(map).bindPopup(label).openPopup();
     if (markerModal) markerModal.style.display = 'none';
-    const markers = JSON.parse(localStorage.getItem('markers') || '[]');
-    markers.push({ lat, lng, label, date: new Date().toLocaleString(), id: Date.now() });
-    localStorage.setItem('markers', JSON.stringify(markers));
+    
+    const markerData = { lat, lng, label, date: new Date().toLocaleString(), id: Date.now() };
+    
+    await fetch('/api/markers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(markerData)
+    });
+    
     renderMarkers();
 }
 
-function renderMarkers() {
-    const markers = JSON.parse(localStorage.getItem('markers') || '[]');
+async function renderMarkers() {
+    const response = await fetch('/api/markers');
+    const markers = await response.json();
+    
     if (markersList) {
         markersList.innerHTML = markers.length ? markers.reverse().map(m => `
             <div class="item-card">
@@ -123,20 +183,24 @@ function renderMarkers() {
 
 window.viewMarker = function(lat, lng) {
     map.setView([lat, lng], 16);
+    if (window.innerWidth <= 768) {
+        document.getElementById('sidebar').classList.remove('active');
+        document.getElementById('menu-toggle').innerText = '☰';
+    }
 };
 
-window.deleteMarker = function(id) {
+window.deleteMarker = async function(id) {
     if (!confirm("Удалить метку?")) return;
-    let markers = JSON.parse(localStorage.getItem('markers') || '[]');
-    markers = markers.filter(m => m.id !== id);
-    localStorage.setItem('markers', JSON.stringify(markers));
+    await fetch(`/api/markers/${id}`, { method: 'DELETE' });
     renderMarkers();
 };
 
 // --- ИСТОРИЯ И ЭКСПОРТ ---
 
-function renderHistory() {
-    const history = JSON.parse(localStorage.getItem('track_history') || '[]');
+async function renderHistory() {
+    const response = await fetch('/api/tracks');
+    const history = await response.json();
+    
     if (historyList) {
         historyList.innerHTML = history.length ? history.reverse().map(t => `
             <div class="item-card">
@@ -152,35 +216,38 @@ function renderHistory() {
     }
 }
 
-window.viewTrack = function(id) {
-    const history = JSON.parse(localStorage.getItem('track_history') || '[]');
+window.viewTrack = async function(id) {
+    const response = await fetch('/api/tracks');
+    const history = await response.json();
     const track = history.find(t => t.id === id);
     if (track) {
         if (polyline) map.removeLayer(polyline);
         polyline = L.polyline(track.points, { color: '#10b981', weight: 5 }).addTo(map);
         map.fitBounds(polyline.getBounds());
+        if (window.innerWidth <= 768) {
+            document.getElementById('sidebar').classList.remove('active');
+            document.getElementById('menu-toggle').innerText = '☰';
+        }
     }
 };
 
-window.deleteTrack = function(id) {
+window.deleteTrack = async function(id) {
     if (!confirm("Удалить маршрут?")) return;
-    let history = JSON.parse(localStorage.getItem('track_history') || '[]');
-    history = history.filter(t => t.id !== id);
-    localStorage.setItem('track_history', JSON.stringify(history));
+    await fetch(`/api/tracks/${id}`, { method: 'DELETE' });
     renderHistory();
 };
 
-function exportAllData() {
-    const history = JSON.parse(localStorage.getItem('track_history') || '[]');
-    const markers = JSON.parse(localStorage.getItem('markers') || '[]');
+async function exportAllData() {
+    const resTracks = await fetch('/api/tracks');
+    const history = await resTracks.json();
+    const resMarkers = await fetch('/api/markers');
+    const markers = await resMarkers.json();
     
-    // Создаем текстовый файл для меток
     let markersText = "=== AstroMAP GPS МЕТКИ ===\n\n";
     markers.forEach(m => {
         markersText += `Название: ${m.label}\nКоординаты: ${m.lat}, ${m.lng}\nДата: ${m.date}\n---------------------------\n`;
     });
 
-    // Создаем текстовый файл для маршрутов
     let tracksText = "=== AstroMAP GPS МАРШРУТЫ ===\n\n";
     history.forEach(t => {
         tracksText += `Маршрут #${t.id}\nНачало: ${t.start}\nКонец: ${t.end}\nТочки:\n`;
@@ -203,12 +270,9 @@ function downloadFile(filename, text) {
 // --- ИНИЦИАЛИЗАЦИЯ ---
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Принудительное удаление старых Service Workers, если они остались
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistrations().then(registrations => {
-            for (let registration of registrations) {
-                registration.unregister();
-            }
+            for (let registration of registrations) registration.unregister();
         });
     }
 
@@ -218,10 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
         maxZoom: 19
     }).addTo(map);
 
-    // Принудительное обновление размера карты после отрисовки
-    setTimeout(() => {
-        map.invalidateSize();
-    }, 200);
+    setTimeout(() => map.invalidateSize(), 200);
 
     startBtn = document.getElementById('start-gps');
     addMarkerBtn = document.getElementById('add-marker');
@@ -236,7 +297,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (addMarkerBtn) addMarkerBtn.onclick = openMarkerModal;
     if (exportDataBtn) exportDataBtn.onclick = exportAllData;
     
-    // Вкладки
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.onclick = () => {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -261,7 +321,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnCancel = document.getElementById('btn-cancel-marker');
     if (btnCancel) btnCancel.onclick = () => markerModal.style.display = 'none';
 
-    // Загрузка путей
+    const menuToggle = document.getElementById('menu-toggle');
+    const sidebar = document.getElementById('sidebar');
+    if (menuToggle && sidebar) {
+        menuToggle.onclick = (e) => {
+            e.stopPropagation();
+            sidebar.classList.toggle('active');
+            menuToggle.innerText = sidebar.classList.contains('active') ? '✕' : '☰';
+        };
+        map.on('click', () => {
+            if (window.innerWidth <= 768) {
+                sidebar.classList.remove('active');
+                menuToggle.innerText = '☰';
+            }
+        });
+    }
+
     ['path-gps', 'path-markers'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -270,4 +345,8 @@ document.addEventListener('DOMContentLoaded', () => {
             el.onchange = (e) => localStorage.setItem(id, e.target.value);
         }
     });
+
+    // Запуск HUD таймера
+    setInterval(updateHUD, 1000);
+    updateHUD();
 });

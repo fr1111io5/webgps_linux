@@ -1,7 +1,10 @@
 {
   "dependencies": {
     "express": "^4.19.2",
-    "express-session": "^1.19.0",
+    "express-session": "^1.18.0",
     "selfsigned": "^2.4.1"
   }
+}
+
+
 }

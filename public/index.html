@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AstroMAP</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; --text: #1e293b; --sidebar-w: 320px; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
+        
+        /* Карта на весь экран */
+        #map { 
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0; 
+            z-index: 1; background: #e5e7eb; 
+        }
+
+        /* Боковая панель поверх карты */
+        .sidebar {
+            position: absolute; top: 0; left: 0; width: var(--sidebar-w); height: 100vh;
+            background: white; z-index: 1000; border-right: 1px solid #e2e8f0;
+            display: flex; flex-direction: column; box-sizing: border-box;
+            box-shadow: 5px 0 15px rgba(0,0,0,0.05);
+        }
+        
+        .sidebar-header { padding: 20px; border-bottom: 1px solid #f1f5f9; }
+        .sidebar-header h1 { margin: 0; font-size: 24px; color: var(--primary); letter-spacing: -1px; }
+
+        .nav-tabs { display: flex; background: #f1f5f9; padding: 5px; margin: 10px; border-radius: 10px; gap: 2px; }
+        .tab-btn { 
+            flex: 1; padding: 8px 5px; border: none; border-radius: 8px; 
+            background: transparent; cursor: pointer; font-size: 11px; font-weight: 600; color: #64748b;
+            transition: all 0.2s;
+        }
+        .tab-btn.active { background: white; color: var(--primary); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+
+        .content-area { flex: 1; overflow-y: auto; padding: 15px; }
+        .section { margin-bottom: 20px; }
+        h3 { font-size: 12px; text-transform: uppercase; color: #94a3b8; margin-bottom: 10px; letter-spacing: 1px; }
+        
+        button {
+            width: 100%; padding: 12px; border: none; border-radius: 8px;
+            background: var(--primary); color: white; font-weight: 600;
+            cursor: pointer; margin-bottom: 8px; transition: opacity 0.2s;
+        }
+        button:active { opacity: 0.8; }
+        button.secondary { background: #f1f5f9; color: #475569; }
+        button.danger { background: #fee2e2; color: #ef4444; }
+
+        input { width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; margin-bottom: 10px; font-size: 13px; }
+        
+        .item-card { background: #f8fafc; border: 1px solid #f1f5f9; padding: 12px; border-radius: 10px; margin-bottom: 10px; color: black; }
+        .item-card b { display: block; font-size: 14px; margin-bottom: 4px; }
+        .item-card small { color: #64748b; font-size: 11px; }
+
+        .status-bar {
+            position: absolute; bottom: 20px; right: 20px;
+            background: rgba(255,255,255,0.9); padding: 8px 15px; border-radius: 12px;
+            z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.1); font-size: 12px;
+            backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        .modal {
+            display: none; position: fixed; z-index: 2000; left: 0; top: 0;
+            width: 100%; height: 100%; background: rgba(0,0,0,0.4);
+            align-items: center; justify-content: center; padding: 20px;
+        }
+        .modal-content {
+            background: white; padding: 25px; border-radius: 16px;
+            width: 100%; max-width: 400px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>AstroMAP</h1>
+        </div>
+
+        <div class="nav-tabs">
+            <button class="tab-btn active" data-tab="settings">Настройки</button>
+            <button class="tab-btn" data-tab="history">История</button>
+            <button class="tab-btn" data-tab="markers">Метки</button>
+        </div>
+
+        <div class="content-area">
+            <!-- ВКЛАДКА: НАСТРОЙКИ -->
+            <div id="tab-settings" class="tab-content">
+                <div class="section">
+                    <h3>Управление GPS</h3>
+                    <button id="start-gps">Начать отслеживание</button>
+                    <button id="add-marker" class="secondary">Поставить метку</button>
+                </div>
+                
+                <div class="section">
+                    <h3>Пути сохранения</h3>
+                    <label style="font-size: 11px; font-weight: bold; color: #64748b;">Маршруты (TXT/GPX):</label>
+                    <input type="text" id="path-gps" value="C:/AstroMAP/Tracks">
+                    
+                    <label style="font-size: 11px; font-weight: bold; color: #64748b;">Метки (TXT):</label>
+                    <input type="text" id="path-markers" value="C:/AstroMAP/Markers">
+                </div>
+
+                <div class="section">
+                    <h3>Отладка</h3>
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px;">
+                        <input type="checkbox" id="test-mode" style="width: auto; margin: 0;"> Тест GPS (Симуляция)
+                    </label>
+                </div>
+                
+                <button id="export-data" style="margin-top: 20px; background: #10b981;">💾 Экспорт всех данных</button>
+            </div>
+
+            <!-- ВКЛАДКА: ИСТОРИЯ -->
+            <div id="tab-history" class="tab-content" style="display: none;">
+                <div id="history-list">
+                    <p style="color: #94a3b8; font-size: 12px; text-align: center;">История маршрутов пуста</p>
+                </div>
+            </div>
+
+            <!-- ВКЛАДКА: МЕТКИ -->
+            <div id="tab-markers" class="tab-content" style="display: none;">
+                <div id="markers-list">
+                    <p style="color: #94a3b8; font-size: 12px; text-align: center;">Меток пока нет</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <div id="marker-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="margin-top:0; font-size: 18px;">Новая метка</h2>
+            <button id="btn-use-gps">📍 Текущее место</button>
+            <button id="btn-manual-coords" class="secondary">⌨️ Ввести вручную</button>
+            
+            <div id="manual-fields" style="display: none; margin-top: 15px;">
+                <input type="text" id="input-lat" placeholder="Широта">
+                <input type="text" id="input-lng" placeholder="Долгота">
+            </div>
+            
+            <input type="text" id="input-label" placeholder="Название метки" style="margin-top: 15px;">
+            
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="btn-save-marker" style="background: #10b981;">Сохранить</button>
+                <button id="btn-cancel-marker" class="danger">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar" id="status">Статус: Готов</div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

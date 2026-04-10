@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход в AstroMAP</title>
+    <style>
+        body { 
+            margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center; 
+            background: #f8fafc; font-family: system-ui, sans-serif; 
+        }
+        .login-card { 
+            background: white; padding: 40px; border-radius: 20px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 100%; max-width: 320px; text-align: center;
+        }
+        h1 { color: #2563eb; margin-bottom: 30px; font-size: 28px; letter-spacing: -1px; }
+        input { 
+            width: 100%; padding: 12px; margin-bottom: 20px; border: 1px solid #e2e8f0; 
+            border-radius: 10px; box-sizing: border-box; font-size: 16px; text-align: center;
+        }
+        button { 
+            width: 100%; padding: 12px; background: #2563eb; color: white; 
+            border: none; border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 16px;
+        }
+        button:hover { background: #1d4ed8; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>AstroMAP</h1>
+        <p style="font-size: 12px; color: #64748b; margin-bottom: 20px;">Авторизация в системе</p>
+        <form action="/login" method="POST">
+            <input type="text" name="login" placeholder="Логин" required autofocus>
+            <input type="password" name="password" placeholder="Пароль" required>
+            <button type="submit">Войти</button>
+        </form>
+    </div>
+</body>
+</html>

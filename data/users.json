@@ -1,0 +1,18 @@
+[
+  {
+    "login": "admin",
+    "password": "admin",
+    "role": "admin",
+    "lastLat": 55.75138740850516,
+    "lastLng": 37.6172180040998,
+    "lastSeen": "11.04.2026, 04:16:13"
+  },
+  {
+    "login": "user1",
+    "password": "123",
+    "role": "user",
+    "lastLat": 55.7510370774409,
+    "lastLng": 37.61836277832627,
+    "lastSeen": "11.04.2026, 04:14:25"
+  }
+]

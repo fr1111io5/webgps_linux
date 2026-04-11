@@ -3,214 +3,264 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AstroMAP</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com; connect-src 'self' https://localhost:3000 https://cdnjs.cloudflare.com; worker-src 'self';">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <title>ASTROMAP</title>
     <style>
-        :root { --primary: #2563eb; --bg: #f8fafc; --text: #1e293b; --sidebar-w: 320px; }
-        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
+        :root { 
+            --primary: #00d4ff; 
+            --secondary: #bc13fe;
+            --bg: #0b0e14; 
+            --card-bg: rgba(16, 20, 28, 0.9); 
+            --text: #e2e8f0; 
+            --border: #1e293b;
+        }
         
-        /* Карта на весь экран */
+        body, html { 
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            font-family: 'Orbitron', 'Segoe UI', sans-serif; 
+            background: var(--bg);
+            color: var(--text);
+            overflow: hidden; 
+        }
+
         #map { 
-            position: absolute; top: 0; left: 0; right: 0; bottom: 0; 
-            z-index: 1; background: #e5e7eb; 
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 1;
+            background: #0b0e14;
         }
 
-        /* Боковая панель */
         .sidebar {
-            position: absolute; top: 0; left: 0; width: var(--sidebar-w); height: 100vh;
-            background: white; z-index: 1000; border-right: 1px solid #e2e8f0;
-            display: flex; flex-direction: column; box-sizing: border-box;
-            box-shadow: 5px 0 15px rgba(0,0,0,0.05);
-            transition: transform 0.3s ease;
-        }
-        
-        /* Кнопка меню для мобильных */
-        .menu-toggle {
-            display: none;
-            position: absolute; top: 15px; left: 15px; z-index: 1100;
-            width: 45px; height: 45px; background: white; border-radius: 12px;
-            border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            cursor: pointer; align-items: center; justify-content: center; font-size: 20px;
+            position: absolute;
+            top: 15px; left: 15px; bottom: 15px;
+            width: 320px;
+            background: var(--card-bg);
+            border: 1px solid var(--primary);
+            display: flex;
+            flex-direction: column;
+            z-index: 5000;
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+            pointer-events: auto;
         }
 
-        /* Адаптивность под мобильные */
-        @media (max-width: 768px) {
-            .sidebar {
-                transform: translateX(-100%);
-                width: 280px;
-            }
-            .sidebar.active {
-                transform: translateX(0);
-            }
-            .menu-toggle {
-                display: flex;
-            }
-            .status-bar {
-                bottom: 10px; right: 10px; left: 10px; text-align: center;
-            }
+        .sidebar-header {
+            padding: 15px;
+            border-bottom: 1px solid var(--border);
+            text-align: center;
         }
-        
-        .sidebar-header { padding: 20px; border-bottom: 1px solid #f1f5f9; }
-        .sidebar-header h1 { margin: 0; font-size: 24px; color: var(--primary); letter-spacing: -1px; }
 
-        .nav-tabs { display: flex; background: #f1f5f9; padding: 5px; margin: 10px; border-radius: 10px; gap: 2px; }
-        .tab-btn { 
-            flex: 1; padding: 8px 5px; border: none; border-radius: 8px; 
-            background: transparent; cursor: pointer; font-size: 11px; font-weight: 600; color: #64748b;
-            transition: all 0.2s;
+        .nav-tabs {
+            display: flex;
+            background: rgba(0,0,0,0.5);
+            padding: 5px;
+            gap: 2px;
+            border-bottom: 1px solid var(--border);
         }
-        .tab-btn.active { background: white; color: var(--primary); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 
-        .content-area { flex: 1; overflow-y: auto; padding: 15px; }
-        .section { margin-bottom: 20px; }
-        h3 { font-size: 12px; text-transform: uppercase; color: #94a3b8; margin-bottom: 10px; letter-spacing: 1px; }
-        
+        .nav-tabs button {
+            flex: 1;
+            background: transparent;
+            border: 1px solid transparent;
+            color: #94a3b8;
+            padding: 10px 2px;
+            font-size: 9px;
+            text-transform: uppercase;
+            cursor: pointer;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .nav-tabs button.active {
+            border: 1px solid var(--primary);
+            color: var(--primary);
+            background: rgba(0, 212, 255, 0.1);
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        .section {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+
         button {
-            width: 100%; padding: 12px; border: none; border-radius: 8px;
-            background: var(--primary); color: white; font-weight: 600;
-            cursor: pointer; margin-bottom: 8px; transition: opacity 0.2s;
-        }
-        button:active { opacity: 0.8; }
-        button.secondary { background: #f1f5f9; color: #475569; }
-        button.danger { background: #fee2e2; color: #ef4444; }
-
-        input { width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; margin-bottom: 10px; font-size: 13px; }
-        
-        .item-card { background: #f8fafc; border: 1px solid #f1f5f9; padding: 12px; border-radius: 10px; margin-bottom: 10px; color: black; }
-        .item-card b { display: block; font-size: 14px; margin-bottom: 4px; }
-        .item-card small { color: #64748b; font-size: 11px; }
-
-        .status-bar {
-            position: absolute; bottom: 20px; right: 20px;
-            background: rgba(255,255,255,0.9); padding: 8px 15px; border-radius: 12px;
-            z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.1); font-size: 12px;
-            backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.3);
+            background: linear-gradient(45deg, #00d4ff, #bc13fe);
+            border: 1px solid rgba(0, 212, 255, 0.5);
+            color: white;
+            padding: 10px;
+            width: 100%;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            font-weight: bold;
+            text-transform: uppercase;
+            cursor: pointer;
+            font-size: 10px;
+            font-family: 'Orbitron', sans-serif;
         }
 
-        /* Правая верхняя панель (HUD) */
+        input, select {
+            width: 100%;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 8px;
+            margin-bottom: 8px;
+            box-sizing: border-box;
+            font-family: sans-serif;
+        }
+
         .info-panel {
-            position: absolute; top: 20px; right: 20px;
-            background: rgba(30, 41, 59, 0.85); color: white;
-            padding: 15px; border-radius: 12px; z-index: 1000;
-            font-family: 'Courier New', Courier, monospace; font-size: 13px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.2); backdrop-filter: blur(8px);
-            border: 1px solid rgba(255,255,255,0.1); min-width: 220px;
+            position: absolute;
+            top: 15px; right: 15px;
+            z-index: 5000;
+            background: rgba(11, 14, 20, 0.9);
+            border: 1px solid var(--primary);
+            padding: 12px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            backdrop-filter: blur(10px);
+            color: var(--primary);
         }
-        .info-line { margin-bottom: 8px; display: flex; justify-content: space-between; }
-        .info-label { color: #94a3b8; margin-right: 10px; }
-        .info-value { font-weight: bold; color: #38bdf8; }
-        .status-updating { color: #fbbf24; }
-        .status-off { color: #ef4444; }
-        .status-ready { color: #4ade80; }
 
-        .modal {
-            display: none; position: fixed; z-index: 2000; left: 0; top: 0;
-            width: 100%; height: 100%; background: rgba(0,0,0,0.4);
-            align-items: center; justify-content: center; padding: 20px;
+        .compass {
+            width: 50px; height: 50px;
+            border: 2px solid var(--primary);
+            border-radius: 50%;
+            position: relative;
         }
-        .modal-content {
-            background: white; padding: 25px; border-radius: 16px;
-            width: 100%; max-width: 400px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+
+        .compass-arrow {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 4px; height: 24px;
+            background: linear-gradient(to bottom, #ef4444 50%, #e2e8f0 50%);
+            transform: translate(-50%, -50%);
+            clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
         }
     </style>
 </head>
 <body>
-    <div class="menu-toggle" id="menu-toggle">☰</div>
-    
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <h1>AstroMAP</h1>
-        </div>
-
-        <div class="nav-tabs">
-            <button class="tab-btn active" data-tab="settings">Настройки</button>
-            <button class="tab-btn" data-tab="history">История</button>
-            <button class="tab-btn" data-tab="markers">Метки</button>
-        </div>
-
-        <div class="content-area">
-            <!-- ВКЛАДКА: НАСТРОЙКИ -->
-            <div id="tab-settings" class="tab-content">
-                <div class="section">
-                    <h3>Управление GPS</h3>
-                    <button id="start-gps">Начать отслеживание</button>
-                    <button id="add-marker" class="secondary">Поставить метку</button>
-                </div>
-                
-                <div class="section">
-                    <h3>Пути сохранения</h3>
-                    <label style="font-size: 11px; font-weight: bold; color: #64748b;">Маршруты (TXT/GPX):</label>
-                    <input type="text" id="path-gps" value="C:/AstroMAP/Tracks">
-                    
-                    <label style="font-size: 11px; font-weight: bold; color: #64748b;">Метки (TXT):</label>
-                    <input type="text" id="path-markers" value="C:/AstroMAP/Markers">
-                </div>
-
-                <div class="section">
-                    <h3>Отладка</h3>
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px;">
-                        <input type="checkbox" id="test-mode" style="width: auto; margin: 0;"> Тест GPS (Симуляция)
-                    </label>
-                </div>
-                
-                <button id="export-data" style="margin-top: 20px; background: #10b981;">💾 Экспорт всех данных</button>
-            </div>
-
-            <!-- ВКЛАДКА: ИСТОРИЯ -->
-            <div id="tab-history" class="tab-content" style="display: none;">
-                <div id="history-list">
-                    <p style="color: #94a3b8; font-size: 12px; text-align: center;">История маршрутов пуста</p>
-                </div>
-            </div>
-
-            <!-- ВКЛАДКА: МЕТКИ -->
-            <div id="tab-markers" class="tab-content" style="display: none;">
-                <div id="markers-list">
-                    <p style="color: #94a3b8; font-size: 12px; text-align: center;">Меток пока нет</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div id="map"></div>
 
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2 style="margin:0; color: var(--primary); font-size: 18px; letter-spacing: 2px;">ASTRO<span style="color: var(--secondary)">MAP</span></h2>
+            <div style="font-size: 7px; letter-spacing: 2px; color: #94a3b8; margin-top: 3px;">SPACE • GEO • ANALYTICS</div>
+        </div>
+        
+        <div class="nav-tabs">
+            <button onclick="showTab('settings')" id="tab-btn-settings" class="active">Настройки</button>
+            <button onclick="showTab('history')" id="tab-btn-history">История</button>
+            <button onclick="showTab('markers')" id="tab-btn-markers">Метки</button>
+            <button onclick="showTab('admin-users')" id="tab-btn-admin-users">Юзеры</button>
+        </div>
+
+        <div class="sidebar-content">
+            <div id="tab-settings" class="tab-content">
+                <div class="section">
+                    <h3 style="font-size: 11px; margin-top: 0; color: var(--primary);">Управление GPS</h3>
+                    <button id="start-gps">🛰️ Начать отслеживание</button>
+                    <button id="add-marker" style="background: #334155;">📍 Поставить метку</button>
+                </div>
+
+                <div class="section">
+                    <h3 style="font-size: 11px; margin-top: 0; color: var(--primary);">Пути сохранения</h3>
+                    <div style="font-size: 10px; margin-bottom: 5px;">Маршруты (TXT/GPX):</div>
+                    <input type="text" id="save-path-tracks" value="C:/AstroMAP/Tracks">
+                    <div style="font-size: 10px; margin-bottom: 5px;">Метки (TXT):</div>
+                    <input type="text" id="save-path-markers" value="C:/AstroMAP/Markers">
+                </div>
+
+                <div class="section">
+                    <h3 style="font-size: 11px; margin-top: 0; color: var(--primary);">Отладка</h3>
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 11px; margin-bottom: 10px;">
+                        <input type="checkbox" id="test-mode" style="width: auto; margin: 0;"> Тест GPS (Симуляция)
+                    </label>
+                    <button id="theme-toggle" style="background: #334155;">☀️ Сменить тему</button>
+                </div>
+                
+                <button id="export-data" style="background: #10b981;">💾 Экспорт данных</button>
+                <button id="logout-btn" style="background: #ef4444;">🚪 Выйти</button>
+
+                <div id="camera-container" class="section" style="display: none; margin-top: 15px; background: #000; padding: 5px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                        <span style="font-size: 11px; color: var(--primary);">Камера: <span id="camera-user-name">...</span></span>
+                        <button onclick="stopBroadcasting()" style="width: auto; padding: 2px 8px; margin: 0; background: #ef4444; font-size: 9px;">ЗАКРЫТЬ</button>
+                    </div>
+                    <video id="remote-video" autoplay playsinline style="width: 100%; border-radius: 4px;"></video>
+                </div>
+            </div>
+
+            <div id="tab-history" class="tab-content" style="display: none;">
+                <div id="history-list">
+                    <p style="color: #94a3b8; font-size: 11px; text-align: center;">История пуста</p>
+                </div>
+            </div>
+
+            <div id="tab-markers" class="tab-content" style="display: none;">
+                <div class="section">
+                    <h3 style="font-size: 11px; margin-top: 0; color: var(--primary);">Новая метка</h3>
+                    <input type="text" id="marker-name" placeholder="Название метки">
+                    <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                        <button id="btn-current-pos" style="font-size: 9px;">📍 Моё место</button>
+                        <button id="btn-manual-toggle" style="background: #334155; font-size: 9px;">⌨️ Вручную</button>
+                    </div>
+                    <div id="manual-coords-input" style="display: none; flex-direction: column; gap: 5px; margin-bottom: 10px;">
+                        <input type="number" id="manual-lat" placeholder="Широта (Lat)" step="any">
+                        <input type="number" id="manual-lng" placeholder="Долгота (Lng)" step="any">
+                    </div>
+                    <button id="btn-save-marker" style="background: #10b981;">Сохранить метку</button>
+                </div>
+                <div id="markers-list">
+                    <p style="color: #94a3b8; font-size: 11px; text-align: center;">Меток нет</p>
+                </div>
+            </div>
+
+            <div id="tab-admin-users" class="tab-content" style="display: none;">
+                <form id="admin-panel" class="section" onsubmit="return false;">
+                    <h3 style="color: var(--primary); margin: 0 0 10px 0; font-size: 12px;">Новый юзер</h3>
+                    <input type="text" id="new-user-login" placeholder="Логин">
+                    <input type="password" id="new-user-pass" placeholder="Пароль">
+                    <button id="btn-create-user">➕ Создать</button>
+                </form>
+                <div id="admin-users-list"></div>
+                
+                <div class="section" style="margin-top: 20px;">
+                    <h3 style="font-size: 11px; margin-top: 0; color: var(--primary);">Системные логи</h3>
+                    <div id="admin-logs-list" style="font-size: 10px; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 4px; max-height: 200px; overflow-y: auto; font-family: monospace; color: #10b981; border: 1px solid var(--border);">
+                        Ожидание данных...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="info-panel">
-        <div class="info-line">
-            <span class="info-label">GPS:</span>
-            <span id="hud-gps-status" class="info-value status-off">ОТКЛЮЧЕН</span>
+        <div class="compass" id="compass">
+            <div class="compass-arrow" id="compass-arrow"></div>
         </div>
-        <div class="info-line">
-            <span class="info-label">СПУТНИКИ:</span>
-            <span id="hud-satellites" class="info-value">0</span>
-        </div>
-        <div class="info-line" style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
-            <span id="hud-datetime" style="color: #f8fafc; font-size: 12px;">--.--.---- --:--:--</span>
+        <div class="info-content">
+            <div style="font-size: 11px; font-weight: bold;">GPS: <span id="hud-gps-status" style="color: #ef4444;">OFF</span></div>
+            <div style="font-size: 11px;">SAT: <span id="hud-satellites">0</span></div>
+            <div id="hud-time" style="font-size: 9px; color: #94a3b8; margin-top: 2px;">--:--:--</div>
         </div>
     </div>
 
-    <div id="marker-modal" class="modal">
-        <div class="modal-content">
-            <h2 style="margin-top:0; font-size: 18px;">Новая метка</h2>
-            <button id="btn-use-gps">📍 Текущее место</button>
-            <button id="btn-manual-coords" class="secondary">⌨️ Ввести вручную</button>
-            
-            <div id="manual-fields" style="display: none; margin-top: 15px;">
-                <input type="text" id="input-lat" placeholder="Широта">
-                <input type="text" id="input-lng" placeholder="Долгота">
-            </div>
-            
-            <input type="text" id="input-label" placeholder="Название метки" style="margin-top: 15px;">
-            
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <button id="btn-save-marker" style="background: #10b981;">Сохранить</button>
-                <button id="btn-cancel-marker" class="danger">Отмена</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="status-bar" id="status">Статус: Готов</div>
-
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

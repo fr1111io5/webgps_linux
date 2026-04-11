@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AstroMAP</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; --text: #1e293b; --sidebar-w: 320px; --card-bg: #f8fafc; --border: #e2e8f0; }
+        
+        body.dark-mode {
+            --bg: #0f172a;
+            --text: #f8fafc;
+            --card-bg: #1e293b;
+            --border: #334155;
+        }
+
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
+        
+        /* Карта на весь экран */
+        #map { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            z-index: 1; background: #e5e7eb; 
+        }
+
+        /* Боковая панель поверх карты */
+        .sidebar {
+            position: absolute; top: 0; left: 0; width: var(--sidebar-w); height: 100vh;
+            background: white; z-index: 1000; border-right: 1px solid #e2e8f0;
+            display: flex; flex-direction: column; box-sizing: border-box;
+            box-shadow: 5px 0 15px rgba(0,0,0,0.05);
+            transition: transform 0.3s ease;
+        }
+        body.dark-mode .sidebar { background: #0f172a; border-right-color: #334155; color: white; }
+        
+        .sidebar-header { padding: 20px; border-bottom: 1px solid #f1f5f9; }
+        body.dark-mode .sidebar-header { border-bottom-color: #334155; }
+        .sidebar-header h1 { margin: 0; font-size: 24px; color: var(--primary); letter-spacing: -1px; }
+
+        .nav-tabs { display: flex; background: #f1f5f9; padding: 5px; margin: 10px; border-radius: 10px; gap: 2px; }
+        body.dark-mode .nav-tabs { background: #1e293b; }
+        .tab-btn { 
+            flex: 1; padding: 8px 5px; border: none; border-radius: 8px; 
+            background: transparent; cursor: pointer; font-size: 11px; font-weight: 600; color: #64748b;
+            transition: all 0.2s;
+        }
+        body.dark-mode .tab-btn { color: #94a3b8; }
+        .tab-btn.active { background: white; color: var(--primary); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        body.dark-mode .tab-btn.active { background: #334155; color: #38bdf8; }
+
+        .content-area { flex: 1; overflow-y: auto; padding: 15px; }
+        .section { margin-bottom: 20px; }
+        h3 { font-size: 12px; text-transform: uppercase; color: #94a3b8; margin-bottom: 10px; letter-spacing: 1px; }
+        
+        button {
+            width: 100%; padding: 12px; border: none; border-radius: 8px;
+            background: var(--primary); color: white; font-weight: 600;
+            cursor: pointer; margin-bottom: 8px; transition: opacity 0.2s;
+        }
+        button:active { opacity: 0.8; }
+        button.secondary { background: #f1f5f9; color: #475569; }
+        body.dark-mode button.secondary { background: #334155; color: #f8fafc; }
+        button.danger { background: #fee2e2; color: #ef4444; }
+
+        input { width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; margin-bottom: 10px; font-size: 13px; }
+        body.dark-mode input { background: #1e293b; border-color: #334155; color: white; }
+        
+        .item-card, .user-card { background: #f8fafc; border: 1px solid #f1f5f9; padding: 12px; border-radius: 10px; margin-bottom: 10px; color: black; }
+        body.dark-mode .item-card, body.dark-mode .user-card { background: #1e293b; border-color: #334155; color: white; }
+        .item-card b, .user-card b { display: block; font-size: 14px; margin-bottom: 4px; }
+        .item-card small, .user-card small { color: #64748b; font-size: 11px; }
+        body.dark-mode .item-card small, body.dark-mode .user-card small { color: #94a3b8; }
+
+        .menu-toggle {
+            display: none; position: absolute; top: 15px; left: 15px; z-index: 1100;
+            width: 45px; height: 45px; background: white; border-radius: 12px;
+            border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            cursor: pointer; align-items: center; justify-content: center; font-size: 20px;
+        }
+        body.dark-mode .menu-toggle { background: #1e293b; border-color: #334155; color: white; }
+
+        /* Правая верхняя панель (HUD) */
+        .info-panel {
+            position: absolute; top: 20px; right: 20px;
+            background: rgba(30, 41, 59, 0.85); color: white;
+            padding: 15px; border-radius: 12px; z-index: 1050;
+            font-family: 'Courier New', Courier, monospace; font-size: 13px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.1); min-width: 220px;
+            pointer-events: none;
+            display: flex; gap: 15px; align-items: center;
+        }
+        .info-content { flex: 1; }
+        .info-line { margin-bottom: 5px; display: flex; justify-content: space-between; }
+        .info-label { color: #94a3b8; margin-right: 10px; }
+        .info-value { font-weight: bold; color: #38bdf8; }
+        .status-updating { color: #fbbf24; }
+        .status-off { color: #ef4444; }
+        .status-ready { color: #4ade80; }
+
+        /* Компас внутри HUD */
+        .compass {
+            width: 50px; height: 50px; background: rgba(255,255,255,0.1);
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            border: 2px solid rgba(255,255,255,0.2); flex-shrink: 0;
+        }
+        .compass-arrow {
+            width: 3px; height: 26px; background: linear-gradient(to bottom, #ef4444 50%, #f8fafc 50%);
+            border-radius: 2px; transition: transform 0.2s;
+        }
+
+        .status-bar {
+            position: absolute; bottom: 20px; right: 20px;
+            background: rgba(255,255,255,0.9); padding: 8px 15px; border-radius: 12px;
+            z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.1); font-size: 12px;
+            backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-100%); width: 85%; max-width: 300px; }
+            .sidebar.active { transform: translateX(0); }
+            .menu-toggle { display: flex; }
+            .info-panel { top: 10px; right: 10px; left: 70px; min-width: 0; padding: 8px 12px; font-size: 11px; }
+            .info-line:last-child { display: none; }
+            .status-bar { display: none; }
+            .compass { width: 35px; height: 35px; }
+            .compass-arrow { height: 18px; }
+        }
+
+        .modal {
+            display: none; position: fixed; z-index: 2000; left: 0; top: 0;
+            width: 100%; height: 100%; background: rgba(0,0,0,0.4);
+            align-items: center; justify-content: center; padding: 20px;
+        }
+        .modal-content {
+            background: white; padding: 25px; border-radius: 16px;
+            width: 100%; max-width: 400px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+        }
+        body.dark-mode .modal-content { background: #1e293b; color: white; }
+    </style>
+</head>
+<body>
+    <div class="menu-toggle" id="menu-toggle">☰</div>
+    
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h1>AstroMAP</h1>
+        </div>
+
+        <div class="nav-tabs">
+            <button class="tab-btn active" data-tab="settings">Настройки</button>
+            <button class="tab-btn" data-tab="history">История</button>
+            <button class="tab-btn" data-tab="markers">Метки</button>
+            <button class="tab-btn" id="nav-admin-users" data-tab="admin-users" style="display: none;">Пользователи</button>
+        </div>
+
+        <div class="content-area">
+            <div id="tab-settings" class="tab-content">
+                <div class="section">
+                    <h3>Управление GPS</h3>
+                    <button id="start-gps">Начать отслеживание</button>
+                    <button id="add-marker" class="secondary">Поставить метку</button>
+                </div>
+                
+                <div class="section">
+                    <h3>Пути сохранения</h3>
+                    <label style="font-size: 11px; font-weight: bold; color: #64748b;">Маршруты (TXT/GPX):</label>
+                    <input type="text" id="path-gps" value="C:/AstroMAP/Tracks">
+                    <label style="font-size: 11px; font-weight: bold; color: #64748b;">Метки (TXT):</label>
+                    <input type="text" id="path-markers" value="C:/AstroMAP/Markers">
+                </div>
+
+                <div class="section">
+                    <h3>Отладка</h3>
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; margin-bottom: 15px;">
+                        <input type="checkbox" id="test-mode" style="width: auto; margin: 0;"> Тест GPS (Симуляция)
+                    </label>
+                    <button id="theme-toggle" class="secondary" style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                        <span id="theme-icon">🌙</span> Сменить тему оформления
+                    </button>
+                </div>
+                
+                <button id="export-data" style="margin-top: 20px; background: #10b981;">💾 Экспорт всех данных</button>
+                <button id="logout-btn" class="danger" style="margin-top: 10px;">🚪 Выйти из аккаунта</button>
+            </div>
+
+            <div id="tab-history" class="tab-content" style="display: none;">
+                <div id="history-list">
+                    <p style="color: #94a3b8; font-size: 12px; text-align: center;">История маршрутов пуста</p>
+                </div>
+            </div>
+
+            <div id="tab-markers" class="tab-content" style="display: none;">
+                <div id="markers-list">
+                    <p style="color: #94a3b8; font-size: 12px; text-align: center;">Меток пока нет</p>
+                </div>
+            </div>
+
+            <div id="tab-admin-users" class="tab-content" style="display: none;">
+                <div id="admin-panel" class="section" style="background: #fefce8; padding: 15px; border-radius: 12px; border: 1px solid #fef08a; margin-bottom: 20px;">
+                    <h3 style="color: #a16207;">Новый пользователь</h3>
+                    <input type="text" id="new-user-login" placeholder="Логин">
+                    <input type="password" id="new-user-pass" placeholder="Пароль">
+                    <button id="btn-create-user" style="background: #ca8a04; font-size: 13px;">➕ Создать аккаунт</button>
+                </div>
+                <div id="admin-users-list">
+                    <p style="color: #94a3b8; font-size: 12px; text-align: center;">Загрузка списка...</p>
+                </div>
+                <div class="section" style="margin-top: 20px;">
+                    <h3>Системные логи</h3>
+                    <div id="admin-logs-list" style="font-size: 10px; background: #f1f5f9; padding: 10px; border-radius: 8px; max-height: 150px; overflow-y: auto; font-family: monospace; color: black;">
+                        Загрузка логов...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <div class="info-panel">
+        <div class="compass" id="compass">
+            <div class="compass-arrow" id="compass-arrow"></div>
+        </div>
+        <div class="info-content">
+            <div class="info-line">
+                <span class="info-label">GPS:</span>
+                <span id="hud-gps-status" class="info-value status-off">ОТКЛЮЧЕН</span>
+            </div>
+            <div class="info-line">
+                <span class="info-label">СПУТНИКИ:</span>
+                <span id="hud-satellites" class="info-value">0</span>
+            </div>
+            <div class="info-line" style="margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 5px;">
+                <span id="hud-datetime" style="color: #f8fafc; font-size: 11px;">--.--.---- --:--:--</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="video-modal" class="modal" style="align-items: center;">
+        <div class="modal-content" style="max-width: 600px; border-radius: 16px; background: #000; padding: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3 id="video-user-name" style="color: white; margin: 0;">Камера: Пользователь</h3>
+                <button onclick="closeVideo()" style="width: auto; padding: 5px 15px; margin: 0; background: #ef4444;">Закрыть</button>
+            </div>
+            <video id="remote-video" autoplay playsinline style="width: 100%; border-radius: 8px; background: #1e293b;"></video>
+            <div id="video-status" style="color: #94a3b8; font-size: 11px; text-align: center; margin-top: 10px;">Ожидание подключения...</div>
+        </div>
+    </div>
+
+    <div id="marker-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="margin-top:0; font-size: 18px;">Новая метка</h2>
+            <button id="btn-use-gps">📍 Текущее место</button>
+            <button id="btn-manual-coords" class="secondary">⌨️ Ввести вручную</button>
+            <div id="manual-fields" style="display: none; margin-top: 15px;">
+                <input type="text" id="input-lat" placeholder="Широта">
+                <input type="text" id="input-lng" placeholder="Долгота">
+            </div>
+            <input type="text" id="input-label" placeholder="Название метки" style="margin-top: 15px;">
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="btn-save-marker" style="background: #10b981;">Сохранить</button>
+                <button id="btn-cancel-marker" class="danger">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar" id="status">Статус: Готов</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

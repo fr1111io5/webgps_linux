@@ -296,8 +296,33 @@ async function updateLiveStatus() {
             startBroadcasting();
         }
 
-        if (currentUser?.role === 'admin' && data.users) {
+    // Оптимизация отрисовки через RequestAnimationFrame
+    let animationFrame;
+    function scheduleUpdate() {
+        if (animationFrame) return;
+        animationFrame = requestAnimationFrame(() => {
             updateAdminRadar(data.users);
+            animationFrame = null;
+        });
+    }
+
+    if (currentUser?.role === 'admin' && data.users) {
+        scheduleUpdate();
+        
+        // ОЧИСТКА: Удаляем маршруты пользователей, которые ушли из сети
+            Object.keys(otherUsersMarkers).forEach(id => {
+                if (id.endsWith('_route') || id.endsWith('_actual')) {
+                    const userId = id.split('_')[0];
+                    if (!data.users[userId]) {
+                        map.removeLayer(otherUsersMarkers[id]);
+                        delete otherUsersMarkers[id];
+                    }
+                } else if (!data.users[id]) {
+                    // Удаляем самого маркер-пользователя
+                    map.removeLayer(otherUsersMarkers[id]);
+                    delete otherUsersMarkers[id];
+                }
+            });
         }
     } catch (e) { console.error(e); }
 }
@@ -306,14 +331,58 @@ function updateAdminRadar(users) {
     Object.keys(users).forEach(id => {
         if (id === deviceId) return;
         const u = users[id];
-        if (u && u.lat && u.lng) {
+        if (u && u.lat != null && u.lng != null) {
+            const rotation = u.heading || 0;
+            const speedKmh = u.speed ? Math.round(u.speed) : 0;
+            
+            // Отрисовка планового маршрута пользователя
+            if (u.routePlan && Array.isArray(u.routePlan)) {
+                if (otherUsersMarkers[id + '_route']) {
+                    otherUsersMarkers[id + '_route'].setLatLngs(u.routePlan);
+                } else {
+                    otherUsersMarkers[id + '_route'] = L.polyline(u.routePlan, {
+                        color: '#bc13fe', // Ярко-фиолетовый
+                        weight: 6,        // Толще
+                        dashArray: '10, 15',
+                        opacity: 0.8      // Заметнее
+                    }).addTo(map);
+                }
+            }
+
+            // Отрисовка фактического пути (где уже проехал)
+            if (u.actualTrack && Array.isArray(u.actualTrack)) {
+                if (otherUsersMarkers[id + '_actual']) {
+                    otherUsersMarkers[id + '_actual'].setLatLngs(u.actualTrack);
+                } else {
+                    otherUsersMarkers[id + '_actual'] = L.polyline(u.actualTrack, {
+                        color: '#00d4ff', // Ярко-бирюзовый
+                        weight: 4,
+                        opacity: 0.9
+                    }).addTo(map);
+                }
+            }
+
             if (otherUsersMarkers[id]) {
                 otherUsersMarkers[id].setLatLng([u.lat, u.lng]);
+                const iconEl = otherUsersMarkers[id].getElement();
+                if (iconEl) {
+                    const arrow = iconEl.querySelector('.arrow-icon');
+                    const speedLabel = iconEl.querySelector('.speed-label');
+                    if (arrow) arrow.style.transform = `rotate(${rotation}deg)`;
+                    if (speedLabel) speedLabel.innerText = `${speedKmh} км/ч`;
+                }
             } else {
                 otherUsersMarkers[id] = L.marker([u.lat, u.lng], {
                     icon: L.divIcon({
-                        className: 'custom-marker',
-                        html: `<div style="color:#ef4444; font-weight:bold; text-shadow:0 0 5px black;">${u.name}</div>`
+                        className: 'custom-user-marker',
+                        iconSize: [40, 40],
+                        iconAnchor: [20, 20],
+                        html: `
+                            <div style="position: relative; width: 40px; height: 40px; display: flex; flex-direction: column; align-items: center;">
+                                <div class="speed-label" style="background: rgba(0,0,0,0.7); color: white; padding: 1px 4px; border-radius: 4px; font-size: 9px; margin-bottom: 2px; white-space: nowrap;">${speedKmh} км/ч</div>
+                                <div class="arrow-icon" style="width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 20px solid #ef4444; transform: rotate(${rotation}deg); transition: transform 0.3s;"></div>
+                                <div style="background: white; padding: 1px 4px; border-radius: 4px; font-size: 10px; color: black; font-weight: bold; margin-top: 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${u.name}</div>
+                            </div>`
                     })
                 }).addTo(map);
             }

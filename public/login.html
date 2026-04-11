@@ -55,11 +55,36 @@
 
     <div class="login-card">
         <h1>AstroMAP</h1>
-        <form action="/login" method="POST">
-            <input type="text" name="login" placeholder="Логин" required autofocus>
-            <input type="password" name="password" placeholder="Пароль" required>
+        <form id="login-form">
+            <input type="text" id="login" name="login" placeholder="Логин" required autofocus>
+            <input type="password" id="password" name="password" placeholder="Пароль" required>
             <button type="submit">Войти</button>
         </form>
     </div>
+    <script>
+        document.getElementById('login-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const login = document.getElementById('login').value;
+            const pass = document.getElementById('password').value;
+            
+            const res = await fetch('/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ login, password: pass })
+            });
+            
+            const data = await res.json();
+            if (data.success) {
+                localStorage.setItem('astro_user', JSON.stringify(data.user));
+                if (data.user.role === 'admin') {
+                    window.location.href = 'index.html';
+                } else {
+                    window.location.href = 'user.html';
+                }
+            } else {
+                alert(data.error || "Ошибка входа");
+            }
+        };
+    </script>
 </body>
 </html>

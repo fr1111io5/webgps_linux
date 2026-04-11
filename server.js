@@ -2,18 +2,19 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const https = require('https');
-const fs = require('fs');
-const selfsigned = require('selfsigned');
 const mysql = require('mysql2/promise');
+const fs = require('fs');
+const { notifyServerStart } = require('./tbot/bot');
 
 const app = express();
+
 const PORT = 3000;
 
 // --- НАСТРОЙКИ MYSQL ---
 const dbConfig = {
-    host: '192.168.1.142',
-    user: 'root',
-    password: 'admin123', 
+    host: '0.0.0.0',
+    user: 'YOUR_MYSQL_USER',
+    password: 'YOUR_MYSQL_PASSWORD', 
     database: 'astromap'
 };
 
@@ -24,7 +25,11 @@ async function initDB() {
         const connection = await mysql.createConnection({
             host: dbConfig.host,
             user: dbConfig.user,
-            password: dbConfig.password
+            password: dbConfig.password,
+            database: dbConfig.database,
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0
         });
         await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.database}\``);
         await connection.end();
@@ -106,16 +111,14 @@ app.use(session({
 
 const authMiddleware = async (req, res, next) => {
     if (req.session.authorized) {
-        const [rows] = await db.execute('SELECT blocked FROM users WHERE login = ?', [req.session.user]);
-        if (rows.length > 0 && rows[0].blocked) {
-            req.session.destroy();
-            return res.redirect('/login?error=blocked');
-        }
-        next();
-    } else {
-        res.redirect('/login');
+        return next();
     }
+    if (req.path.startsWith('/api/')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    res.redirect('/login.html');
 };
+
 
 async function logAction(userLogin, action, req) {
     try {
@@ -130,21 +133,21 @@ app.get('/login', (req, res) => {
 
 app.post('/login', async (req, res) => {
     const { login, password } = req.body;
-    try {
-        const [rows] = await db.execute('SELECT * FROM users WHERE login = ? AND password = ?', [login, password]);
-        if (rows.length > 0) {
-            const user = rows[0];
-            if (user.blocked) return res.send('Аккаунт заблокирован. <a href="/login">Назад</a>');
-            req.session.authorized = true;
-            req.session.user = user.login;
-            req.session.role = user.role;
-            await logAction(user.login, 'Вход в систему', req);
-            res.redirect('/');
-        } else {
-            res.send('Неверный логин или пароль. <a href="/login">Попробовать снова</a>');
-        }
-    } catch (err) { res.status(500).send('Ошибка БД'); }
+    const [rows] = await db.execute('SELECT * FROM users WHERE login = ? AND password = ?', [login, password]);
+    
+    if (rows.length > 0) {
+        const user = rows[0];
+        if (user.blocked) return res.status(403).json({ success: false, error: 'Account blocked' });
+        
+        req.session.authorized = true;
+        req.session.user = user.login;
+        req.session.role = user.role;
+        res.json({ success: true, user: { login: user.login, role: user.role } });
+    } else {
+        res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
 });
+
 
 app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/login'));
@@ -152,7 +155,8 @@ app.get('/logout', (req, res) => {
 
 // --- LIVE МОНИТОРИНГ И СИГНАЛИНГ ---
 let activeUsers = {};
-let webrtcSignals = {}; 
+global.activeUsers = activeUsers; // Делаем доступным для бота
+let webrtcSignals = {};
 
 app.post('/api/live', authMiddleware, async (req, res) => {
     const { lat, lng, heading, speed, deviceId } = req.body;
@@ -191,6 +195,23 @@ app.post('/api/live', authMiddleware, async (req, res) => {
         res.json({ users: allUsers, signal: webrtcSignals[userLogin] || null });
         if (webrtcSignals[userLogin]) delete webrtcSignals[userLogin];
     } else {
+        // Обновляем данные пользователя для бота
+        if (!activeUsers[deviceId]) {
+            activeUsers[deviceId] = { 
+                name: userLogin, 
+                startTime: Date.now(),
+                lastUpdate: Date.now()
+            };
+        }
+        activeUsers[deviceId].lat = lat;
+        activeUsers[deviceId].lng = lng;
+        activeUsers[deviceId].speed = speed || 0;
+        activeUsers[deviceId].heading = heading;
+        activeUsers[deviceId].lastUpdate = Date.now();
+        activeUsers[deviceId].routePlan = req.body.routePlan || null;
+        activeUsers[deviceId].actualTrack = req.body.actualTrack || null; // Сохраняем фактический путь
+        if (!activeUsers[deviceId].startTime) activeUsers[deviceId].startTime = Date.now();
+
         res.json({ 
             command: activeUsers[deviceId]?.pendingCommand || null,
             signal: webrtcSignals[userLogin] || null 
@@ -290,9 +311,15 @@ app.delete('/api/markers/:id', authMiddleware, async (req, res) => {
     res.json({ success: true });
 });
 
-app.get('/', authMiddleware, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.get('/script.js', authMiddleware, (req, res) => res.sendFile(path.join(__dirname, 'public', 'script.js')));
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/', authMiddleware, (req, res) => {
+    if (req.session.role === 'admin') {
+        res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    } else {
+        res.sendFile(path.join(__dirname, 'public', 'user.html'));
+    }
+});
 
 const sslDir = path.join(__dirname, 'ssl');
 if (!fs.existsSync(sslDir)) fs.mkdirSync(sslDir);
@@ -308,4 +335,5 @@ if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
 
 https.createServer(sslOptions, app).listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 AstroMAP (HTTPS + MySQL) на https://localhost:${PORT}`);
+    notifyServerStart();
 });

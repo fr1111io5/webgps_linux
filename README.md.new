@@ -26,7 +26,7 @@ Create a database named `astromap` in MySQL and ensure the connection settings i
 ### 4. Telegram Bot Setup
 Open `tbot/bot.js` and insert your token from @BotFather:
 ```javascript
-const token = '8755396144:AAHEzWlLG2930bNvNbaTnERfXYUaeZ4GR3k';
+const token = '---';
 ```
 
 ---
